@@ -71,22 +71,5 @@ const DEST_CURRENCIES = {
       },
     };
     
-    async function loadRates() {
-      try {
-        const res = await fetch("https://api.frankfurter.app/latest?from=USD");
-        const data = await res.json();
-        const rates = data.rates;
-    
-        Object.keys(DEST_CURRENCIES).forEach((code) => {
-          if (rates[code]) {
-            DEST_CURRENCIES[code].baseRateFromUSD = rates[code];
-          }
-        });
-      } catch (err) {
-        console.error("Failed to load exchange rates", err);
-      }
-    }
-    
-    loadRates();
-    
-    export default DEST_CURRENCIES;
+
+export default DEST_CURRENCIES;

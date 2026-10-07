@@ -1,3 +1,4 @@
+import { calculateReceived } from "./calculations";
 import { useState, useEffect, useMemo } from "react";
 import { generateAIReview } from "./gemini";
 import {
@@ -90,29 +91,7 @@ const CURRENCIES = {
       KWD: { symbol: "KD", name: "Kuwaiti Dinar", country: "Kuwait", flag: "🇰🇼" },
     };
     
-    const TO_USD = {
-      USD: 1,
-      EUR: 1.085,
-      GBP: 1.267,
-      CAD: 0.738,
-      AUD: 0.648,
-      SGD: 0.743,
-      AED: 0.272,
-      CHF: 1.115,
-      HKD: 0.128,
-      NZD: 0.609,
-      JPY: 0.0067,
-      NOK: 0.094,
-      SEK: 0.095,
-      DKK: 0.145,
-      MXN: 0.058,
-      BRL: 0.201,
-      ZAR: 0.054,
-      TRY: 0.031,
-      SAR: 0.267,
-      QAR: 0.274,
-      KWD: 3.25,
-    };
+
     
 
     const PROVIDERS = [
@@ -1380,7 +1359,9 @@ export default function SmarTransfer() {
       const [amountUSD, setAmountUSD] = useState(null);
       const [midRate, setMidRate] = useState(null);
       const [fxRate, setFxRate] = useState(null);
-      const [fxLoading, setFxLoading] = useState(false);
+      const [fxLoading, setFxLoading] = useState(true);
+  const [fxError, setFxError] = useState("");
+  const [originToUSD, setOriginToUSD] = useState(null);
       const [showAI, setShowAI] = useState(false);
       const [hasRun, setHasRun] = useState(false);
       const [activeTab, setActiveTab] = useState("results");
@@ -1405,27 +1386,35 @@ export default function SmarTransfer() {
         sortedItems?.find((i) => i.provider.id === highlightedId) ?? null;
 
     useEffect(() => {
-        setFxLoading(true);
-        fetch(
-          `https://api.frankfurter.dev/v1/latest?base=USD&symbols=${destCurrency}`
-        )
-          .then((r) => r.json())
-          .then((d) => {
-            setFxRate(d.rates?.[destCurrency] || destData.baseRateFromUSD);
-            setFxLoading(false);
-          })
-          .catch(() => {
-            setFxRate(destData.baseRateFromUSD);
-            setFxLoading(false);
-          });
-      }, [destCurrency]);
+    const controller = new AbortController();
+    setFxLoading(true);
+    setFxError("");
+    setFxRate(null);
+    setOriginToUSD(null);
+    setComputedItems(null);
+    setHasRun(false);
+    fetch("https://api.frankfurter.dev/v1/latest?base=USD", { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Exchange-rate service is unavailable.");
+        const data = await response.json();
+        const destinationRate = data.rates?.[destCurrency];
+        const originRate = originCurrency === "USD" ? 1 : data.rates?.[originCurrency];
+        if (!(destinationRate > 0) || !(originRate > 0)) throw new Error("Live rates are unavailable for this currency pair. Choose another pair.");
+        setFxRate(destinationRate);
+        setOriginToUSD(1 / originRate);
+      })
+      .catch((error) => { if (error.name !== "AbortError") setFxError(error.message); })
+      .finally(() => { if (!controller.signal.aborted) setFxLoading(false); });
+    return () => controller.abort();
+  }, [destCurrency, originCurrency]);
 
-    function analyze() {
-        const today = new Date();
+  function analyze() {
+        if (fxLoading || fxError || !(fxRate > 0) || !(originToUSD > 0) || !(Number(amount) > 0)) return;
+      const today = new Date();
         const isWeekend = today.getDay() === 0 || today.getDay() === 6;
-        const usdConversion = TO_USD[originCurrency] || 1;
+        const usdConversion = originToUSD || 0;
         const aUSD = amount * usdConversion;
-        const rate = fxRate || destData.baseRateFromUSD;
+        const rate = fxRate;
          const eligibleProviders = PROVIDERS.filter((p) => {
               // Only restrict weekend for urgent modes
               if (isWeekend && delivery !== "standard" && !p.weekend_supported)
@@ -1444,11 +1433,8 @@ export default function SmarTransfer() {
 
           const computed = eligibleProviders.map((p) => {
                   const fee = calcFee(p, aUSD);
-                  const effectiveRate =
-                    p.type === "crypto"
-                      ? rate * (1 - (p.fee_model.fx_spread_percent || 0))
-                      : rate * (1 - (p.fee_model.fx_markup_percent || 0));
-                  const received = (aUSD - fee) * effectiveRate;
+                  const effectiveRate = rate; // FX markup/spread is already included in fee.
+                  const received = calculateReceived(aUSD, fee, effectiveRate);
                   const costPct = (fee / aUSD) * 100;
             
                   let score = 0;
@@ -1589,7 +1575,7 @@ export default function SmarTransfer() {
                 }}
               >
                 {CURRENCIES[originCurrency]?.flag} 1 {originCurrency} ={" "}
-                {(fxRate * (TO_USD[originCurrency] || 1)).toFixed(4)}{" "}
+                {(fxRate * (originToUSD || 0)).toFixed(4)}{" "}
                 {destCurrency} {destData.flag}
               </span>
             )
@@ -1633,7 +1619,7 @@ export default function SmarTransfer() {
           }}
         >
           Compare banks, remittance apps, and crypto routes in real time with
-          full fee transparency and AI-powered recommendations.
+          modeled fee comparisons and optional AI explanations.
         </p>
       </div>
 
@@ -1810,6 +1796,7 @@ export default function SmarTransfer() {
           >
             <button
               onClick={analyze}
+              disabled={fxLoading || !!fxError || !(Number(amount) > 0)}
               style={{
                 background: `linear-gradient(135deg,${C.teal},${C.primary})`,
                 border: "none",
@@ -1834,7 +1821,7 @@ export default function SmarTransfer() {
               Compare routes
             </button>
             <span style={{ fontSize: 12, color: C.subtle }}>
-              Rates via Frankfurter API · Updated live
+              {fxError || (fxLoading ? "Loading exchange rates…" : "Live FX rates · Provider fees are illustrative")}
             </span>
           </div>
         </div>
@@ -1994,7 +1981,7 @@ export default function SmarTransfer() {
                     Mid-market rate:{" "}
                     <strong>
                       1 {originCurrency} ={" "}
-                      {(midRate * (TO_USD[originCurrency] || 1)).toFixed(4)}{" "}
+                      {(midRate * (originToUSD || 0)).toFixed(4)}{" "}
                       {destCurrency}
                     </strong>
                   </div>

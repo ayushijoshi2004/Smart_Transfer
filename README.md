@@ -15,7 +15,7 @@ Sending money internationally involves hidden costs and complex tradeoffs. Smart
 ## Features
 
 ### Core Functionality
-- **Multi-provider comparison**: 8+ transfer methods analyzed side-by-side
+- **Multi-provider comparison**: Multiple transfer methods analyzed side-by-side
 - **Total cost transparency**: Flat fees + percentage fees + FX markups all included
 - **Adaptive scoring**: Rankings adjust based on your urgency and risk tolerance
 - **Visual analytics**: Charts showing fee breakdowns and value comparisons
@@ -50,21 +50,22 @@ Total Fee = On-ramp Fee + Gas Fee + Exchange Fee + Off-ramp Fee + FX Spread
 
 Recommendations adapt to your priorities:
 
-- **Standard mode**: 70% cost, 30% speed
-- **Express mode**: 50% cost, 50% speed
+- **Standard mode**: cost-only ranking
+- **Express mode**: 60% cost, 40% speed
 - **Same-day mode**: 30% cost, 70% speed
 
 Risk tolerance applies penalties to crypto options:
-- Conservative: 40% penalty
-- Balanced: 15% penalty
-- Flexible: No penalty
+- Conservative: 40-point penalty
+- Balanced: 15-point penalty
+- Flexible: 10-point bonus
 
 ## Installation
 
 ```bash
-git clone [repository-url]
-cd wisetransfer
-npm install
+git clone https://github.com/ayushijoshi2004/Smart_Transfer.git
+cd Smart_Transfer
+npm ci
+cp .env.example .env.local
 npm run dev
 ```
 
@@ -118,3 +119,14 @@ Contributions welcome. Areas for improvement:
 - Frankfurter API for exchange rate data
 - Recharts for visualization components
 - Built for HackHers 2026
+## Prototype boundaries
+
+Provider fees, settlement estimates and risk penalties are illustrative constants, not live provider quotes. Origin and destination exchange rates are fetched together from Frankfurter. Unsupported currency pairs disable comparison with an explanatory message. Rankings are a rule-based heuristic, not an ML prediction. Confirm quotes with providers before acting. FX markup/spread is included once in total fees; received funds use the remaining USD amount times the mid-market destination rate.
+
+Optional AI explanations use `VITE_AI_REVIEW_URL`, a server endpoint you supply. A local FastAPI gateway is included in `backend/`; it keeps the Gemini key private and accepts comparison JSON, returning `{ "answer": "..." }`. With no endpoint configured, comparisons still work and the AI panel shows a clear unavailable message. No Gemini key should be set in frontend environment variables.
+
+Run `npm test` for calculation regression checks and `npm run build` for a production build.
+
+### Optional AI server
+
+From `backend/`, create/activate a virtual environment, install `requirements.txt`, and copy `.env.example` to `.env`. Set your private `GEMINI_API_KEY`, then run `uvicorn app:app --host 127.0.0.1 --port 8001`. In the frontend `.env.local`, set `VITE_AI_REVIEW_URL=http://localhost:8001/api/review` and restart Vite. The server allows the local frontend origins only; for deployment, set `FRONTEND_ORIGIN` and provide your own authentication/rate limits.
